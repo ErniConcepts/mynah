@@ -203,6 +203,8 @@ func (s *Service) ChatOnce(ctx context.Context, tenantID, agentID, userID, sessi
 	s.debugf("memory_revision reason=%q memory_chars=%d user_chars=%d", revision.Reason, len(revision.MemoryDoc), len(revision.UserDoc))
 
 	revision.MemoryDoc, revision.UserDoc = memory.RouteMemoryDocuments(revision.MemoryDoc, revision.UserDoc, userID)
+	memoryChanged := strings.TrimSpace(revision.MemoryDoc) != strings.TrimSpace(memoryDoc)
+	userChanged := strings.TrimSpace(revision.UserDoc) != strings.TrimSpace(userDoc)
 
 	provenance := storage.RevisionProvenance{
 		UserID:    userID,
@@ -221,17 +223,21 @@ func (s *Service) ChatOnce(ctx context.Context, tenantID, agentID, userID, sessi
 		return reply, nil
 	}
 
-	if err := fileStore.WriteMemory(revision.MemoryDoc); err != nil {
-		return reply, err
+	if memoryChanged {
+		if err := fileStore.WriteMemory(revision.MemoryDoc); err != nil {
+			return reply, err
+		}
+		if err := fileStore.WriteMemoryProvenance(provenance); err != nil {
+			return reply, err
+		}
 	}
-	if err := fileStore.WriteMemoryProvenance(provenance); err != nil {
-		return reply, err
-	}
-	if err := fileStore.WriteUserProfile(userID, revision.UserDoc); err != nil {
-		return reply, err
-	}
-	if err := fileStore.WriteUserProfileProvenance(userID, provenance); err != nil {
-		return reply, err
+	if userChanged {
+		if err := fileStore.WriteUserProfile(userID, revision.UserDoc); err != nil {
+			return reply, err
+		}
+		if err := fileStore.WriteUserProfileProvenance(userID, provenance); err != nil {
+			return reply, err
+		}
 	}
 
 	return reply, nil

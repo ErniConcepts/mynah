@@ -145,6 +145,9 @@ func RouteMemoryDocuments(memoryDoc, userDoc, userID string) (string, string) {
 	}
 
 	for _, line := range memoryLines {
+		if referencesDifferentUser(line, userID, userName) {
+			continue
+		}
 		if isUserScopedLine(line, userID, userName) {
 			addUser(line)
 			continue
@@ -152,6 +155,9 @@ func RouteMemoryDocuments(memoryDoc, userDoc, userID string) (string, string) {
 		addMemory(line)
 	}
 	for _, line := range userLines {
+		if referencesDifferentUser(line, userID, userName) {
+			continue
+		}
 		if isUserScopedLine(line, userID, userName) {
 			addUser(line)
 			continue
@@ -314,6 +320,61 @@ func isSharedLine(line, userID, userName string) bool {
 		return true
 	}
 	return false
+}
+
+func referencesDifferentUser(line, userID, userName string) bool {
+	lower := canonicalLine(line)
+	if lower == "" || !isUserScopedLine(line, userID, userName) {
+		return false
+	}
+
+	current := []string{}
+	if trimmed := strings.ToLower(strings.TrimSpace(userID)); trimmed != "" {
+		current = append(current, trimmed)
+	}
+	if trimmed := strings.ToLower(strings.TrimSpace(userName)); trimmed != "" && trimmed == strings.ToLower(strings.TrimSpace(userID)) {
+		current = append(current, trimmed)
+	}
+
+	for _, token := range extractUserMarkers(lower) {
+		if token == "" {
+			continue
+		}
+		matchesCurrent := false
+		for _, allowed := range current {
+			if token == allowed {
+				matchesCurrent = true
+				break
+			}
+		}
+		if !matchesCurrent {
+			return true
+		}
+	}
+	return false
+}
+
+func extractUserMarkers(lower string) []string {
+	markers := []string{}
+	patterns := []string{"user's name is ", "name is "}
+	for _, pattern := range patterns {
+		if idx := strings.Index(lower, pattern); idx >= 0 {
+			value := strings.TrimSpace(lower[idx+len(pattern):])
+			value = strings.Trim(value, " .,:;!?")
+			if value != "" {
+				markers = append(markers, strings.Fields(value)[0])
+			}
+		}
+	}
+
+	words := strings.Fields(lower)
+	if len(words) >= 2 && containsAny(lower, []string{"prefers", "likes", "answers", "replies"}) {
+		first := strings.Trim(words[0], " .,:;!?")
+		if first != "" && first != "user" && first != "prefers" {
+			markers = append(markers, first)
+		}
+	}
+	return markers
 }
 
 func canonicalLine(line string) string {

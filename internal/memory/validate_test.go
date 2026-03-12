@@ -104,3 +104,21 @@ func TestRouteMemoryDocumentsKeepsUserFactsOutOfSharedMemory(t *testing.T) {
 		t.Fatalf("expected shared reminder to be removed from user doc, got %q", routedUser)
 	}
 }
+
+func TestRouteMemoryDocumentsRejectsDifferentUserFacts(t *testing.T) {
+	memoryDoc := `- Bob prefers detailed answers.`
+	userDoc := `- Anna prefers concise answers.
+- User's name is Anna.`
+
+	routedMemory, routedUser := RouteMemoryDocuments(memoryDoc, userDoc, "bob")
+
+	if strings.Contains(strings.ToLower(routedMemory), "anna prefers") {
+		t.Fatalf("expected different-user fact to be dropped from shared memory, got %q", routedMemory)
+	}
+	if strings.Contains(strings.ToLower(routedUser), "anna prefers") || strings.Contains(strings.ToLower(routedUser), "user's name is anna") {
+		t.Fatalf("expected different-user facts to be dropped from bob user doc, got %q", routedUser)
+	}
+	if !strings.Contains(strings.ToLower(routedUser), "bob prefers") {
+		t.Fatalf("expected current-user fact to remain, got %q", routedUser)
+	}
+}

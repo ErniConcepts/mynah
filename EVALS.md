@@ -31,6 +31,7 @@ Do not treat it as a final reporting step after implementation is already fixed.
 
 - prefer real production inputs when available
 - for stateful agent tests, prefer staged human-like interaction sequences that exercise session creation, user identification, memory routing, and recall
+- add adversarial memory cases early: prompt injection, oversaving, cross-user leakage, scope confusion, and duplicate accumulation
 - log inputs and outputs in structured form from the start
 - if production data is missing, create deliberate hand-written or synthetic cases
 - keep datasets deduplicated and diverse
