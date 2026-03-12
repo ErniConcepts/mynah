@@ -119,8 +119,8 @@ func (c *Client) ReviseMemory(ctx context.Context, request MemoryRevisionRequest
 	system := fmt.Sprintf(
 		"You maintain two bounded markdown documents for one persistent agent.\n\n"+
 			"Document 1: MEMORY.md\n"+
-			"- Keep durable shared facts, recurring routines, important lessons, stable context, and important decisions.\n"+
-			"- Prefix each stored entry with either <memory> or <decision>.\n"+
+			"- Keep durable shared facts, recurring routines, important lessons, stable context, and important outcomes worth remembering.\n"+
+			"- Keep shared facts only. Do not store one user's preferences, name, or communication style here.\n"+
 			"- Do not keep transient chatter.\n"+
 			"- Do not log greetings, arithmetic questions, or one-off assistant behavior.\n"+
 			"- Do not write interaction guidelines, politeness rules, or generic chatbot habits.\n"+
@@ -130,16 +130,18 @@ func (c *Client) ReviseMemory(ctx context.Context, request MemoryRevisionRequest
 			"- Stay within %d characters.\n\n"+
 			"Document 2: USER.md\n"+
 			"- Keep durable facts about the current identified user only.\n"+
-			"- Prefix each stored entry with <memory>.\n"+
 			"- Store preferences, communication style, recurring habits, and user-specific stable facts.\n"+
+			"- Do not copy shared environment facts, barn facts, horse facts, or shared reminders here unless they are explicitly unique to the current user.\n"+
 			"- Do not copy shared agent or environment facts here.\n"+
 			"- Prefer compact bullets or short paragraphs.\n"+
 			"- Stay within %d characters.\n\n"+
 			"Rules:\n"+
 			"- Preserve useful existing information unless it is outdated or redundant.\n"+
 			"- If nothing should change, return the existing document contents unchanged.\n"+
-			"- MEMORY.md is for shared remembered facts and decisions.\n"+
+			"- MEMORY.md is for shared remembered facts and important outcomes worth keeping.\n"+
 			"- USER.md is for user-specific remembered facts.\n"+
+			"- User answering preferences belong in USER.md, not MEMORY.md.\n"+
+			"- Shared reminders, routines, and environment facts belong in MEMORY.md unless they are explicitly about this one user.\n"+
 			"- Good MEMORY.md content sounds like remembered facts about the horse, company, routines, behaviors, or shared outcomes.\n"+
 			"- Good USER.md content sounds like durable facts about one specific user.\n"+
 			"- Bad memory content sounds like a chat transcript, generic assistant instructions, or praise for the assistant.\n"+

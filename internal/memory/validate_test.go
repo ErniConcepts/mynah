@@ -80,25 +80,27 @@ func TestValidateProfileDocumentRejectsHiddenUnicode(t *testing.T) {
 	}
 }
 
-func TestNormalizeTaggedMemoryAssignsPrefixesAndMovesDecisions(t *testing.T) {
-	memoryDoc, userDoc := NormalizeTaggedMemory(
-		"The barn uses the blue gate.\nReminder promised for Friday.",
-		"Prefers concise answers.\n<decision> Reminder set for Friday as requested.",
-	)
+func TestRouteMemoryDocumentsKeepsUserFactsOutOfSharedMemory(t *testing.T) {
+	memoryDoc := `- The user prefers detailed, comprehensive answers with thorough explanations.
+- At the barn, the blue gate is always used as the usual entrance.
+- There is a recurring reminder set for Friday.`
 
-	if !strings.Contains(memoryDoc, "<memory> The barn uses the blue gate.") {
-		t.Fatalf("expected shared memory line to be tagged, got %q", memoryDoc)
+	userDoc := `- User's name is Anna.
+- Prefers both detailed, comprehensive answers and concise, short replies.
+- Has a recurring reminder set for Friday.`
+
+	routedMemory, routedUser := RouteMemoryDocuments(memoryDoc, userDoc, "anna")
+
+	if strings.Contains(strings.ToLower(routedMemory), "prefers detailed") {
+		t.Fatalf("expected user preference to be removed from shared memory, got %q", routedMemory)
 	}
-	if !strings.Contains(memoryDoc, "<decision> Reminder promised for Friday.") {
-		t.Fatalf("expected decision line in memory doc, got %q", memoryDoc)
+	if !strings.Contains(strings.ToLower(routedMemory), "blue gate") || !strings.Contains(strings.ToLower(routedMemory), "friday") {
+		t.Fatalf("expected shared facts to stay in memory, got %q", routedMemory)
 	}
-	if !strings.Contains(memoryDoc, "<decision> Reminder set for Friday as requested.") {
-		t.Fatalf("expected user decision to move into memory doc, got %q", memoryDoc)
+	if !strings.Contains(strings.ToLower(routedUser), "anna") || !strings.Contains(strings.ToLower(routedUser), "concise") {
+		t.Fatalf("expected user facts to stay in user doc, got %q", routedUser)
 	}
-	if strings.Contains(userDoc, "<decision>") {
-		t.Fatalf("expected no decision lines left in user doc, got %q", userDoc)
-	}
-	if !strings.Contains(userDoc, "<memory> Prefers concise answers.") {
-		t.Fatalf("expected user memory line to be tagged, got %q", userDoc)
+	if strings.Contains(strings.ToLower(routedUser), "reminder set for friday") {
+		t.Fatalf("expected shared reminder to be removed from user doc, got %q", routedUser)
 	}
 }

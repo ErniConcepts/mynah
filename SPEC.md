@@ -423,8 +423,7 @@ The initial memory model has four parts:
 
 1. `MEMORY.md`
    - bounded curated persistent memory for one agent
-   - contains distilled important facts, routines, preferences, lessons, and stable context
-   - also stores important decisions for now
+   - contains distilled important facts, routines, preferences, lessons, stable context, and important outcomes worth remembering
    - small enough to inject into the system prompt every session
 
 2. `AGENT_PROFILE.md`
@@ -449,7 +448,7 @@ The memory-related context types are intentionally different:
 
 - `MEMORY.md`
   - agent-learned shared durable context
-  - stores facts about the agent, subject, environment, routines, and important decisions shared across users
+  - stores facts about the agent, subject, environment, routines, and shared ongoing context across users
 
 - `USER.md`
   - agent-learned user-scoped durable context
@@ -495,27 +494,14 @@ Every memory artifact must be scoped by:
 - time metadata
 - provenance metadata
 
-### 13.5 Memory Entry Prefixes
-Entries written into bounded memory files should carry explicit prefixes.
-
-Initial prefixes:
-- `<memory>`
-- `<decision>`
-
-For now:
-- both prefixes may be stored inside `MEMORY.md`
-- `USER.md` uses the same initial prefix vocabulary
-
-This keeps the memory model simple while leaving room for finer categories later.
-
-### 13.6 Required Memory Properties
+### 13.5 Required Memory Properties
 - auditable
 - reconstructable
 - policy-scoped
 - searchable
 - safe against accidental cross-tenant leakage
 
-### 13.7 Why This Model
+### 13.6 Why This Model
 This keeps the main benefits of Hermes:
 - small always-on persistent memory
 - long-term searchable session archive
@@ -553,7 +539,7 @@ The pipeline decides whether to:
 The routing rule is:
 - if the durable fact is about the agent, subject, or shared environment, write to `MEMORY.md`
 - if the durable fact is about the identified user in the current session, write to that user's `USER.md`
-- if the content is an important committed outcome, keep it in `MEMORY.md` for now using the `<decision>` prefix
+- if the content is an important shared outcome worth remembering, keep it in `MEMORY.md`
 
 3. Validation
    - enforce schema, size, provenance, and policy rules

@@ -31,8 +31,8 @@ func TestLiveOpenAIMemoryRoutingAndIsolation(t *testing.T) {
 	if _, err := service.ChatOnce(ctx, "tenant-live", "bella", "anna", "sess_anna_live_1", "My name is Anna. Please keep answers concise. At the barn we always use the blue gate."); err != nil {
 		t.Fatalf("anna intro: %v", err)
 	}
-	if _, err := service.ChatOnce(ctx, "tenant-live", "bella", "anna", "sess_anna_live_1", "Please remember that you promised me a reminder on Friday."); err != nil {
-		t.Fatalf("anna decision turn: %v", err)
+	if _, err := service.ChatOnce(ctx, "tenant-live", "bella", "anna", "sess_anna_live_1", "Please remember that we have a reminder on Friday."); err != nil {
+		t.Fatalf("anna shared reminder turn: %v", err)
 	}
 	if _, err := service.ChatOnce(ctx, "tenant-live", "bella", "bob", "sess_bob_live_1", "My name is Bob. I prefer more detailed answers."); err != nil {
 		t.Fatalf("bob intro: %v", err)
@@ -83,8 +83,8 @@ func TestLiveOpenAIRobustness20Variants(t *testing.T) {
 		{name: "anna-pref-2", userID: "anna", sessionID: "anna_s1", prompt: "Short replies work best for me."},
 		{name: "shared-gate-1", userID: "anna", sessionID: "anna_s1", prompt: "At the barn we always use the blue gate."},
 		{name: "shared-gate-2", userID: "anna", sessionID: "anna_s1", prompt: "The usual entrance is the blue gate."},
-		{name: "decision-1", userID: "anna", sessionID: "anna_s1", prompt: "Please remember that you promised me a reminder on Friday."},
-		{name: "decision-2", userID: "anna", sessionID: "anna_s1", prompt: "Let's settle on Friday for the reminder."},
+		{name: "shared-reminder-1", userID: "anna", sessionID: "anna_s1", prompt: "Please remember that we have a reminder on Friday."},
+		{name: "shared-reminder-2", userID: "anna", sessionID: "anna_s1", prompt: "Friday is the day for the reminder."},
 		{name: "bob-name-1", userID: "bob", sessionID: "bob_s1", prompt: "My name is Bob."},
 		{name: "bob-pref-1", userID: "bob", sessionID: "bob_s1", prompt: "I prefer more detailed answers."},
 		{name: "bob-pref-2", userID: "bob", sessionID: "bob_s1", prompt: "Longer explanations are usually better for me."},
@@ -101,7 +101,7 @@ func TestLiveOpenAIRobustness20Variants(t *testing.T) {
 		{name: "anna-query-gate-2", userID: "anna", sessionID: "anna_s5", prompt: "Remember blue gate.", checkReply: func(t *testing.T, reply string) {
 			assertContainsAll(t, reply, []string{"blue gate"})
 		}},
-		{name: "anna-query-decision-1", userID: "anna", sessionID: "anna_s6", prompt: "What did you decide about the reminder?", checkReply: func(t *testing.T, reply string) {
+		{name: "anna-query-reminder-1", userID: "anna", sessionID: "anna_s6", prompt: "What do you remember about the reminder?", checkReply: func(t *testing.T, reply string) {
 			assertContainsAny(t, reply, []string{"friday"})
 			assertContainsAny(t, reply, []string{"reminder"})
 		}},
@@ -139,8 +139,8 @@ func TestLiveOpenAIRobustness20Variants(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read shared memory: %v", err)
 	}
-	assertContainsAny(t, agentMemory, []string{"<memory>", "<decision>"})
 	assertContainsAll(t, agentMemory, []string{"blue gate"})
+	assertContainsAll(t, agentMemory, []string{"reminder", "friday"})
 
 	annaUser, err := fileStore.ReadUserProfile("anna")
 	if err != nil {

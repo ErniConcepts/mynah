@@ -3,7 +3,6 @@ package memory
 import (
 	"fmt"
 	"regexp"
-	"slices"
 	"strings"
 )
 
@@ -56,15 +55,30 @@ var transientMemoryPhrases = []string{
 	"further assistance",
 }
 
-var decisionPhrases = []string{
-	"agreed",
-	"decided",
-	"decision",
-	"promised",
-	"remind",
+var userScopedPhrases = []string{
+	"user",
+	"user's name",
+	"name is",
+	"prefers",
+	"likes ",
+	"works best for",
+	"communication style",
+	"answer me",
+	"answers",
+	"replies",
+}
+
+var sharedMemoryPhrases = []string{
+	"barn",
+	"horse",
+	"gate",
+	"routine",
 	"reminder",
-	"settled",
-	"will remind",
+	"schedule",
+	"company",
+	"visitor",
+	"employee",
+	"front desk",
 }
 
 func ValidateMemoryDocument(content string, limit int) error {
@@ -97,20 +111,59 @@ func ValidateUserDocument(content string, limit int) error {
 	return nil
 }
 
-func NormalizeTaggedMemory(memoryDoc, userDoc string) (string, string) {
-	memoryLines := normalizeTaggedLines(memoryDoc, true)
-	userLines := normalizeTaggedLines(userDoc, false)
+func RouteMemoryDocuments(memoryDoc, userDoc, userID string) (string, string) {
+	memoryLines := documentLines(memoryDoc)
+	userLines := documentLines(userDoc)
+	userName := detectUserName(userID, userLines)
 
-	filteredUser := make([]string, 0, len(userLines))
-	for _, line := range userLines {
-		if lineTag(line) == "<decision>" {
-			memoryLines = append(memoryLines, line)
-			continue
+	routedMemory := make([]string, 0, len(memoryLines)+len(userLines))
+	routedUser := make([]string, 0, len(userLines)+len(memoryLines))
+	seenMemory := map[string]struct{}{}
+	seenUser := map[string]struct{}{}
+
+	addMemory := func(line string) {
+		key := canonicalLine(line)
+		if key == "" {
+			return
 		}
-		filteredUser = append(filteredUser, line)
+		if _, exists := seenMemory[key]; exists {
+			return
+		}
+		seenMemory[key] = struct{}{}
+		routedMemory = append(routedMemory, bulletLine(line))
+	}
+	addUser := func(line string) {
+		key := canonicalLine(line)
+		if key == "" {
+			return
+		}
+		if _, exists := seenUser[key]; exists {
+			return
+		}
+		seenUser[key] = struct{}{}
+		routedUser = append(routedUser, bulletLine(line))
 	}
 
-	return strings.Join(dedupeLines(memoryLines), "\n"), strings.Join(dedupeLines(filteredUser), "\n")
+	for _, line := range memoryLines {
+		if isUserScopedLine(line, userID, userName) {
+			addUser(line)
+			continue
+		}
+		addMemory(line)
+	}
+	for _, line := range userLines {
+		if isUserScopedLine(line, userID, userName) {
+			addUser(line)
+			continue
+		}
+		if isSharedLine(line, userID, userName) {
+			addMemory(line)
+			continue
+		}
+		addUser(line)
+	}
+
+	return strings.Join(routedMemory, "\n"), strings.Join(routedUser, "\n")
 }
 
 func validateBase(content string, limit int) error {
@@ -195,58 +248,82 @@ func containsAny(content string, phrases []string) bool {
 	return false
 }
 
-func normalizeTaggedLines(doc string, allowDecision bool) []string {
-	lines := strings.Split(strings.TrimSpace(doc), "\n")
-	out := make([]string, 0, len(lines))
-	for _, raw := range lines {
-		line := strings.TrimSpace(raw)
+func documentLines(content string) []string {
+	raw := strings.Split(content, "\n")
+	lines := make([]string, 0, len(raw))
+	for _, line := range raw {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		line = strings.TrimPrefix(line, "- ")
+		line = strings.TrimPrefix(line, "* ")
+		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
-		if strings.HasPrefix(line, "#") {
-			continue
-		}
-		if strings.HasPrefix(line, "- ") || strings.HasPrefix(line, "* ") {
-			line = strings.TrimSpace(line[2:])
-		}
-		content := strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(line, "<memory>"), "<decision>"))
-		isDecision := looksLikeDecision(content)
-		switch {
-		case allowDecision && isDecision:
-			line = "<decision> " + content
-		case !allowDecision && isDecision:
-			line = "<decision> " + content
-		default:
-			line = "<memory> " + content
-		}
-		out = append(out, line)
+		lines = append(lines, line)
 	}
-	return out
+	return lines
 }
 
-func looksLikeDecision(line string) bool {
-	return containsAny(strings.ToLower(line), decisionPhrases)
-}
-
-func lineTag(line string) string {
-	for _, tag := range []string{"<memory>", "<decision>"} {
-		if strings.HasPrefix(line, tag) {
-			return tag
+func detectUserName(userID string, userLines []string) string {
+	for _, line := range userLines {
+		lower := strings.ToLower(line)
+		if strings.Contains(lower, "name is ") {
+			name := strings.TrimSpace(line[strings.Index(lower, "name is ")+len("name is "):])
+			return strings.TrimRight(name, ".")
+		}
+		if strings.Contains(lower, "user's name is ") {
+			name := strings.TrimSpace(line[strings.Index(lower, "user's name is ")+len("user's name is "):])
+			return strings.TrimRight(name, ".")
 		}
 	}
-	return ""
+	return strings.TrimSpace(userID)
 }
 
-func dedupeLines(lines []string) []string {
-	out := make([]string, 0, len(lines))
-	for _, line := range lines {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		if slices.Contains(out, line) {
-			continue
-		}
-		out = append(out, line)
+func isUserScopedLine(line, userID, userName string) bool {
+	lower := canonicalLine(line)
+	if lower == "" {
+		return false
 	}
-	return out
+	if containsAny(lower, userScopedPhrases) {
+		return true
+	}
+	if userName != "" && strings.Contains(lower, strings.ToLower(userName)) {
+		return true
+	}
+	if userID != "" && strings.Contains(lower, strings.ToLower(userID)) {
+		return true
+	}
+	return false
+}
+
+func isSharedLine(line, userID, userName string) bool {
+	lower := canonicalLine(line)
+	if lower == "" {
+		return false
+	}
+	if containsAny(lower, sharedMemoryPhrases) {
+		return true
+	}
+	if userName != "" && !strings.Contains(lower, strings.ToLower(userName)) && containsAny(lower, []string{"reminder", "routine", "schedule"}) {
+		return true
+	}
+	if userID != "" && !strings.Contains(lower, strings.ToLower(userID)) && containsAny(lower, []string{"reminder", "routine", "schedule"}) {
+		return true
+	}
+	return false
+}
+
+func canonicalLine(line string) string {
+	return strings.ToLower(strings.TrimSpace(strings.TrimSuffix(line, ".")))
+}
+
+func bulletLine(line string) string {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return ""
+	}
+	return "- " + line
 }

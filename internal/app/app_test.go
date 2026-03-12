@@ -42,10 +42,10 @@ func (fakeLLMClient) GenerateReply(_ context.Context, request llm.ReplyRequest) 
 		}
 	}
 	if strings.Contains(lower, "what did you decide") {
-		if strings.Contains(strings.ToLower(request.MemoryDoc), "<decision> reminder promised for friday.") {
-			parts = append(parts, "I decided to promise a reminder for Friday.")
+		if strings.Contains(strings.ToLower(request.MemoryDoc), "reminder on friday") || strings.Contains(strings.ToLower(request.MemoryDoc), "reminder for friday") {
+			parts = append(parts, "I remember the reminder for Friday.")
 		} else {
-			parts = append(parts, "I have no stored decision for that yet.")
+			parts = append(parts, "I do not have that reminder stored yet.")
 		}
 	}
 	if strings.Contains(lower, "what do we use at the barn") {
@@ -67,22 +67,22 @@ func (fakeLLMClient) ReviseMemory(_ context.Context, request llm.MemoryRevisionR
 	lower := strings.ToLower(request.UserMessage)
 
 	if strings.Contains(lower, "my name is anna") {
-		userDoc = addMemoryLine(userDoc, "<memory> Name: Anna.")
+		userDoc = addMemoryLine(userDoc, "Name: Anna.")
 	}
 	if strings.Contains(lower, "i like concise answers") {
-		userDoc = addMemoryLine(userDoc, "<memory> Prefers concise answers.")
+		userDoc = addMemoryLine(userDoc, "Prefers concise answers.")
 	}
 	if strings.Contains(lower, "my name is bob") {
-		userDoc = addMemoryLine(userDoc, "<memory> Name: Bob.")
+		userDoc = addMemoryLine(userDoc, "Name: Bob.")
 	}
 	if strings.Contains(lower, "i prefer detailed answers") {
-		userDoc = addMemoryLine(userDoc, "<memory> Prefers detailed answers.")
+		userDoc = addMemoryLine(userDoc, "Prefers detailed answers.")
 	}
 	if strings.Contains(lower, "blue gate") {
-		memoryDoc = addMemoryLine(memoryDoc, "<memory> The barn uses the blue gate.")
+		memoryDoc = addMemoryLine(memoryDoc, "The barn uses the blue gate.")
 	}
 	if strings.Contains(lower, "reminder on friday") {
-		memoryDoc = addMemoryLine(memoryDoc, "<decision> Reminder promised for Friday.")
+		memoryDoc = addMemoryLine(memoryDoc, "Reminder on Friday.")
 	}
 
 	return llm.MemoryRevision{
@@ -123,7 +123,7 @@ func TestUserScopedMemoryRoutingAndIsolation(t *testing.T) {
 		t.Fatalf("shared memory write: %v", err)
 	}
 	if _, err := service.ChatOnce(context.Background(), "tenant", "bella", "anna", sessionAnna, "Please remember that you promised me a reminder on Friday."); err != nil {
-		t.Fatalf("decision write: %v", err)
+		t.Fatalf("shared reminder write: %v", err)
 	}
 
 	sessionBob := "sess_bob_1"
@@ -135,11 +135,11 @@ func TestUserScopedMemoryRoutingAndIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read memory: %v", err)
 	}
-	if !strings.Contains(agentMemory, "<memory> The barn uses the blue gate.") {
+	if !strings.Contains(agentMemory, "The barn uses the blue gate.") {
 		t.Fatalf("expected shared memory entry, got %q", agentMemory)
 	}
-	if !strings.Contains(agentMemory, "<decision> Reminder promised for Friday.") {
-		t.Fatalf("expected decision entry, got %q", agentMemory)
+	if !strings.Contains(agentMemory, "Reminder on Friday.") {
+		t.Fatalf("expected reminder entry in shared memory, got %q", agentMemory)
 	}
 
 	annaUser, err := fileStore.ReadUserProfile("anna")

@@ -200,7 +200,7 @@ func (s *Service) ChatOnce(ctx context.Context, tenantID, agentID, userID, sessi
 	}
 	s.debugf("memory_revision reason=%q memory_chars=%d user_chars=%d", revision.Reason, len(revision.MemoryDoc), len(revision.UserDoc))
 
-	revision.MemoryDoc, revision.UserDoc = memory.NormalizeTaggedMemory(revision.MemoryDoc, revision.UserDoc)
+	revision.MemoryDoc, revision.UserDoc = memory.RouteMemoryDocuments(revision.MemoryDoc, revision.UserDoc, userID)
 
 	if err := memory.ValidateMemoryDocument(revision.MemoryDoc, s.cfg.MemoryCharLimit); err != nil {
 		s.debugf("memory_revision rejected reason=%q", err)
