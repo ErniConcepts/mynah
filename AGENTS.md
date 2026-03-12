@@ -13,6 +13,7 @@ Use the linked files below as the starting points:
 - `VISION.md` - product vision and strategic direction
 - `DESIGN.md` - design direction and visual principles
 - `DEVELOP.md` - development rules and working expectations
+- `EVALS.md` - evaluation and experiment design rules
 - `SPEC.md` - full architecture and system specification
 
 Start simple, keep the system inspectable, and prefer explicit decisions over hidden behavior.

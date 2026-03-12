@@ -16,3 +16,12 @@ Working expectations:
 - fail clearly instead of failing open
 - keep the common path cheap and simple
 - document major architectural changes in `SPEC.md`
+
+## Closed-Loop Development
+
+- prefer development loops where behavior can be tested immediately
+- build the smallest runnable harness before expanding scope
+- isolate one module or agent behavior at a time
+- debug with real inputs whenever possible
+- avoid coupling new work to unrelated infrastructure too early
+- use `EVALS.md` for experiment and evaluation rules
