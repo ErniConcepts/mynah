@@ -473,7 +473,7 @@
       {
         key: "current",
         title: "Spec Baseline",
-        ids: ["tenant-agent-model", "control-plane", "runtime-api", "memory-system", "skill-system", "device-adapter-layer", "knowledge-layer", "audit-observability"]
+        ids: ["tenant-agent-model", "v0-data-model", "control-plane", "runtime-api", "memory-system", "skill-system", "device-adapter-layer", "knowledge-layer", "audit-observability"]
       },
       {
         key: "security",
@@ -497,6 +497,16 @@
         deepens: ["Future subject abstraction when product-specific needs require it.", "Provisioning and lifecycle workflows.", "Stronger explicit tenancy contracts across all subsystems."],
         files: ["SPEC.md", "internal/app/app.go", "internal/storage/files.go"],
         notes: ["This block comes directly from sections 7 and 8 of SPEC.md.", "The current implementation partially reflects it."]
+      },
+      "v0-data-model": {
+        title: "v0 Data Model",
+        status: "implemented",
+        blurb: "Explicit local durable model for files, sidecars, and per-agent SQLite history.",
+        summary: "SPEC.md now defines the concrete v0 durable model instead of leaving it implied. The local prototype uses path-scoped tenant and agent state, inspectable markdown memory documents, JSON provenance sidecars, and one SQLite history database per agent.",
+        exists: ["Filesystem layout is now explicit in the spec.", "The spec names the exact v0 session history schema and current sidecar fields.", "The spec distinguishes implemented durable entities from planned relational control-plane entities.", "The prototype already matches this file-plus-SQLite structure."],
+        deepens: ["Hosted PostgreSQL control-plane schemas.", "Retention rules for history and provenance.", "Channel and policy records beyond the current local prototype."],
+        files: ["SPEC.md", "README.md", "internal/storage/files.go", "internal/storage/session_store.go"],
+        notes: ["This keeps the spec honest about what is durable today.", "It also preserves a forward path to a hosted control plane without discarding the document projection model."]
       },
       "control-plane": {
         title: "Control Plane",
@@ -522,11 +532,11 @@
         title: "Memory System",
         status: "implemented",
         blurb: "Bounded memory, session recall, retrieval, and post-turn updates.",
-        summary: "The memory system is central in SPEC.md and is already the strongest implemented part of the prototype.",
-        exists: ["AGENT_PROFILE.md, shared MEMORY.md, and user-scoped USER.md are defined in the spec and represented in the prototype.", "SQLite session history and recall align with the v0 memory model.", "Post-turn memory updates now use an explicit operation contract instead of freeform document rewrites.", "Injected memory is treated as a frozen snapshot for the current turn.", "Memory and user-memory writes are validated, runtime-applied, split into atomic entries, written atomically, and carry minimal provenance sidecars.", "The latest rejected memory revision is inspectable for live-debug and eval review."],
-        deepens: ["Richer provenance beyond the current minimal sidecars.", "Policy-scoped writes.", "Richer retrieval and memory pipeline contracts."],
+        summary: "The memory system is central in SPEC.md and is already the strongest implemented part of the prototype. The spec now defines the concrete v0 memory pipeline contract: frozen prompt snapshot, post-turn revision proposal, runtime validation, ordered persistence, and inspectable rejection handling.",
+        exists: ["AGENT_PROFILE.md, shared MEMORY.md, and user-scoped USER.md are defined in the spec and represented in the prototype.", "SQLite session history and recall align with the v0 memory model.", "Post-turn memory updates now use an explicit operation contract instead of freeform document rewrites.", "Injected memory is treated as a frozen snapshot for the current turn.", "Memory and user-memory writes are runtime-applied, validated, and persisted with minimal provenance sidecars.", "The latest rejected memory revision is inspectable for live-debug and eval review."],
+        deepens: ["Richer provenance beyond the current minimal sidecars.", "Policy-scoped writes.", "A stronger transactional commit boundary when both shared and user memory change in one turn."],
         files: ["SPEC.md", "internal/app/app.go", "internal/storage/files.go", "internal/storage/session_store.go", "internal/memory/validate.go"],
-        notes: ["This is where the prototype is closest to the spec today."]
+        notes: ["This is where the prototype is closest to the spec today.", "The spec now distinguishes current ordered persistence from the stronger future transactional target."]
       },
       "skill-system": {
         title: "Skill System",

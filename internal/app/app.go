@@ -35,7 +35,7 @@ type Service struct {
 
 type llmClient interface {
 	GenerateReply(ctx context.Context, request llm.ReplyRequest) (string, error)
-	ReviseMemory(ctx context.Context, request llm.MemoryRevisionRequest) (llm.MemoryRevision, error)
+	ProposeMemoryOps(ctx context.Context, request llm.MemoryOpProposalRequest) (llm.MemoryOpProposal, error)
 }
 
 type InspectResult struct {
@@ -188,7 +188,7 @@ func (s *Service) ChatOnce(ctx context.Context, tenantID, agentID, userID, sessi
 	}
 	s.debugf("assistant_reply chars=%d", len(reply))
 
-	revision, err := s.llmClient.ReviseMemory(ctx, llm.MemoryRevisionRequest{
+	proposal, err := s.llmClient.ProposeMemoryOps(ctx, llm.MemoryOpProposalRequest{
 		AgentID:       agentID,
 		MemoryDoc:     memoryDoc,
 		UserDoc:       userDoc,
@@ -198,29 +198,31 @@ func (s *Service) ChatOnce(ctx context.Context, tenantID, agentID, userID, sessi
 		UserLimit:     s.cfg.ProfileCharLimit,
 	})
 	if err != nil {
-		s.debugf("memory_revision skipped error=%v", err)
+		s.debugf("memory_ops skipped error=%v", err)
 		return reply, nil
 	}
-	s.debugf("memory_revision reason=%q operation_count=%d", revision.Reason, len(revision.Operations))
+	s.debugf("memory_ops reason=%q operation_count=%d", proposal.Reason, len(proposal.Operations))
 
 	writeRejectedRevision := func(rejectionErr error) {
 		if rejectionErr == nil {
 			return
 		}
-		_ = fileStore.WriteRejectedRevision(storage.RejectedRevision{
-			Timestamp:      time.Now().UTC(),
-			UserID:         userID,
-			SessionID:      sessionID,
-			Message:        strings.TrimSpace(userInput),
-			Reason:         strings.TrimSpace(revision.Reason),
-			RejectionError: rejectionErr.Error(),
-			Operations:     revision.Operations,
+		_ = fileStore.CommitRejectedMemory(storage.RejectedMemoryCommit{
+			RejectedRevision: storage.RejectedRevision{
+				Timestamp:      time.Now().UTC(),
+				UserID:         userID,
+				SessionID:      sessionID,
+				Message:        strings.TrimSpace(userInput),
+				Reason:         strings.TrimSpace(proposal.Reason),
+				RejectionError: rejectionErr.Error(),
+				Operations:     proposal.Operations,
+			},
 		})
 	}
 
-	nextMemoryDoc, nextUserDoc, err := memory.ApplyMemoryOperations(memoryDoc, userDoc, userID, revision.Operations)
+	nextMemoryDoc, nextUserDoc, err := memory.ApplyMemoryOperations(memoryDoc, userDoc, userID, proposal.Operations)
 	if err != nil {
-		s.debugf("memory_revision rejected error=%q", err)
+		s.debugf("memory_ops rejected error=%q", err)
 		writeRejectedRevision(err)
 		return reply, nil
 	}
@@ -231,36 +233,34 @@ func (s *Service) ChatOnce(ctx context.Context, tenantID, agentID, userID, sessi
 		UserID:    userID,
 		SessionID: sessionID,
 		Timestamp: time.Now().UTC(),
-		Reason:    strings.TrimSpace(revision.Reason),
+		Reason:    strings.TrimSpace(proposal.Reason),
 		Message:   strings.TrimSpace(userInput),
 	}
 
 	if err := memory.ValidateMemoryDocument(nextMemoryDoc, s.cfg.MemoryCharLimit); err != nil {
-		s.debugf("memory_revision rejected reason=%q", err)
+		s.debugf("memory_ops rejected reason=%q", err)
 		writeRejectedRevision(err)
 		return reply, nil
 	}
 	if err := memory.ValidateUserDocument(nextUserDoc, s.cfg.ProfileCharLimit); err != nil {
-		s.debugf("user_revision rejected reason=%q", err)
+		s.debugf("user_ops rejected reason=%q", err)
 		writeRejectedRevision(err)
 		return reply, nil
 	}
 
+	commit := storage.AcceptedMemoryCommit{}
 	if memoryChanged {
-		if err := fileStore.WriteMemory(nextMemoryDoc); err != nil {
-			return reply, err
-		}
-		if err := fileStore.WriteMemoryProvenance(provenance); err != nil {
-			return reply, err
-		}
+		commit.MemoryDoc = &nextMemoryDoc
+		memoryMeta := provenance
+		commit.MemoryProvenance = &memoryMeta
 	}
 	if userChanged {
-		if err := fileStore.WriteUserProfile(userID, nextUserDoc); err != nil {
-			return reply, err
-		}
-		if err := fileStore.WriteUserProfileProvenance(userID, provenance); err != nil {
-			return reply, err
-		}
+		commit.UserDoc = &nextUserDoc
+		userMeta := provenance
+		commit.UserProvenance = &userMeta
+	}
+	if err := fileStore.CommitAcceptedMemory(userID, commit); err != nil {
+		return reply, err
 	}
 
 	return reply, nil

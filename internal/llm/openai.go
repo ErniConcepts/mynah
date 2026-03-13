@@ -39,7 +39,9 @@ type ReplyRequest struct {
 	RecentMessages []ChatMessage
 }
 
-type MemoryRevisionRequest struct {
+// MemoryOpProposalRequest asks the model for a narrow, tool-like memory
+// operation payload. The runtime still validates and applies it.
+type MemoryOpProposalRequest struct {
 	AgentID       string
 	MemoryDoc     string
 	UserDoc       string
@@ -56,7 +58,7 @@ type MemoryOperation struct {
 	OldText string `json:"old_text,omitempty"`
 }
 
-type MemoryRevision struct {
+type MemoryOpProposal struct {
 	Operations []MemoryOperation `json:"operations"`
 	Reason     string            `json:"reason"`
 }
@@ -122,7 +124,7 @@ func (c *Client) GenerateReply(ctx context.Context, request ReplyRequest) (strin
 	return c.chatCompletion(ctx, messages, 0.3)
 }
 
-func (c *Client) ReviseMemory(ctx context.Context, request MemoryRevisionRequest) (MemoryRevision, error) {
+func (c *Client) ProposeMemoryOps(ctx context.Context, request MemoryOpProposalRequest) (MemoryOpProposal, error) {
 	system := fmt.Sprintf(
 		"You maintain two bounded memory stores for one persistent agent using explicit operations.\n\n"+
 			"Store 1: MEMORY.md\n"+
@@ -179,16 +181,16 @@ func (c *Client) ReviseMemory(ctx context.Context, request MemoryRevisionRequest
 		{Role: "user", Content: user},
 	}, 0.1)
 	if err != nil {
-		return MemoryRevision{}, err
+		return MemoryOpProposal{}, err
 	}
 
 	content = extractJSON(content)
-	var revision MemoryRevision
-	if err := json.Unmarshal([]byte(content), &revision); err != nil {
-		return MemoryRevision{}, fmt.Errorf("parse memory revision: %w", err)
+	var proposal MemoryOpProposal
+	if err := json.Unmarshal([]byte(content), &proposal); err != nil {
+		return MemoryOpProposal{}, fmt.Errorf("parse memory operation proposal: %w", err)
 	}
 
-	return revision, nil
+	return proposal, nil
 }
 
 func (c *Client) chatCompletion(ctx context.Context, messages []ChatMessage, temperature float64) (string, error) {

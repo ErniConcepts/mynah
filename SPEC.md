@@ -1,8 +1,8 @@
 # MYNAH Global Specification
 
-Version: 0.3-global-framework
+Version: 0.4-global-framework
 Status: Draft
-Last updated: 2026-03-11
+Last updated: 2026-03-13
 
 ## 1. Purpose
 MYNAH is a secure, tenant-aware agent framework for building tailored agents for users and businesses.
@@ -171,6 +171,212 @@ The initial platform should define these core entities:
   - auditable record of isolated execution
 - `audit_event`
   - cross-cutting operational and security event record
+
+### 8.2 v0 Data Model
+The v0 data model should be explicit about what is durable today, what is planned next, and what is only a conceptual entity so far.
+
+The current prototype uses two durable storage forms:
+- filesystem-backed bounded markdown and JSON sidecars for agent memory state
+- one SQLite database per agent for session history and recall
+
+This means v0 durable truth is split intentionally:
+- bounded prompt memory stays human-inspectable as files
+- chronological interaction history stays queryable in SQLite
+
+The v0 prototype does not yet persist all conceptual entities from section 8 as first-class database rows.
+In practice:
+- `tenant`, `agent`, and `user` are currently represented by stable scoped identifiers and directory layout
+- `session` and message history are persisted in SQLite
+- `memory_snapshot` is represented by markdown files plus provenance sidecars
+- `policy`, `capability_grant`, `knowledge_asset`, `skill`, `skill_installation`, `device_adapter`, `sandbox_execution`, and `audit_event` remain specification entities, not yet full durable prototype records
+
+### 8.3 Identifier Rules
+The v0 identifier model is intentionally simple.
+
+Required identifiers:
+- `tenant_id`
+- `agent_id`
+- `user_id`
+- `session_id`
+
+Rules:
+- every identifier is an opaque stable string
+- identifiers must be safe for use in paths, logs, and database keys
+- identifiers must be resolved before durable writes happen
+- `user_id` is required before creating durable `USER.md` state
+- `session_id` is required before writing session history or memory provenance
+
+The current prototype assumes:
+- `tenant_id` and `agent_id` are operator-provided CLI values
+- `user_id` is a caller-provided stable user identifier for the current agent
+- `session_id` is caller-provided or generated at session start and then reused across the interaction
+
+The same identifiers must remain portable to the future hosted model.
+Moving from local storage to PostgreSQL later should not require changing the core scope keys.
+
+### 8.4 v0 Filesystem Layout
+The current durable filesystem layout is:
+
+```text
+<data_dir>/
+  tenants/
+    <tenant_id>/
+      agents/
+        <agent_id>/
+          AGENT_PROFILE.md
+          MEMORY.md
+          MEMORY.meta.json
+          MEMORY.rejected.json
+          history.db
+          users/
+            <user_id>/
+              USER.md
+              USER.meta.json
+```
+
+Default local root:
+- `.mynah/`
+
+v0 file responsibilities:
+- `AGENT_PROFILE.md`
+  - operator or developer-authored framing
+  - not mutated by ordinary user turns
+- `MEMORY.md`
+  - bounded shared durable memory for the agent
+  - learned and updated through the memory revision pipeline
+- `MEMORY.meta.json`
+  - latest accepted shared-memory provenance record
+- `MEMORY.rejected.json`
+  - latest rejected memory revision attempt for inspection and eval debugging
+- `users/<user_id>/USER.md`
+  - bounded durable memory for one identified user under one agent
+- `users/<user_id>/USER.meta.json`
+  - latest accepted user-memory provenance record
+- `history.db`
+  - per-agent SQLite database for sessions, messages, and recall indexes
+
+The v0 filesystem layout is the canonical local prototype truth.
+It is intentionally inspectable and does not hide durable memory state behind opaque embeddings or model-owned stores.
+
+### 8.5 v0 Memory Snapshot Records
+The v0 `memory_snapshot` entity is represented as a projected file bundle rather than a normalized database table.
+
+The effective snapshot for one turn consists of:
+- `AGENT_PROFILE.md`
+- current `MEMORY.md`
+- current session user's `USER.md` when `user_id` is resolved
+
+The projection rules are:
+- each file is bounded in size
+- each file is independently readable without extra tooling
+- prompt injection uses a frozen read snapshot per turn
+- accepted writes become durable only for later turns
+
+This projection-first design is intentional for v0 because it keeps the memory layer easy to inspect, debug, diff, and evaluate.
+
+### 8.6 v0 Provenance Sidecars
+Accepted memory writes must keep minimal provenance in JSON sidecars.
+
+Current accepted provenance fields:
+- `target`
+- `user_id`
+- `session_id`
+- `timestamp`
+- `reason`
+- `message`
+
+Current rejected revision fields:
+- `timestamp`
+- `user_id`
+- `session_id`
+- `message`
+- `reason`
+- `rejection_error`
+- `operations[]`
+
+Sidecar intent:
+- reconstruct why the latest durable memory state changed
+- expose rejected live-model behavior without requiring verbose logs
+- support inspection through CLI and future operator surfaces
+
+This is intentionally the minimum v0 provenance contract.
+Later versions may append richer revision history, operator review state, or diff chains, but should not remove the inspectable minimum.
+
+### 8.7 v0 Session History Schema
+The per-agent SQLite schema is:
+
+```sql
+CREATE TABLE sessions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  started_at TEXT NOT NULL
+);
+
+CREATE TABLE messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT NOT NULL,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_messages_session_created_at ON messages(session_id, created_at);
+CREATE INDEX idx_messages_created_at ON messages(created_at);
+
+CREATE VIRTUAL TABLE messages_fts USING fts5(
+  content,
+  content='messages',
+  content_rowid='id'
+);
+```
+
+The v0 session-history model is deliberately narrow:
+- one `history.db` per agent
+- one `sessions` row per conversation session
+- one `messages` row per user or assistant turn
+- full-text recall index over message content
+
+Current behavior enforced by the prototype:
+- each session belongs to exactly one `user_id`
+- a session cannot be rebound to a different user later
+- recall search is limited to the current user inside the current agent
+- recent agent inspection can still show cross-user recent history to the operator because that is an inspection surface, not user-facing recall
+
+### 8.8 v0 Entity Mapping
+The conceptual v0 entity mapping is:
+
+| Entity | v0 durable form | Current status |
+| --- | --- | --- |
+| `tenant` | path scope segment | implemented in prototype |
+| `agent` | path scope segment | implemented in prototype |
+| `channel` | implicit CLI channel metadata only | partial |
+| `session` | SQLite `sessions` table | implemented |
+| `user` | scoped identifier plus per-user directory | implemented |
+| `policy` | spec-only | planned |
+| `capability_grant` | spec-only | planned |
+| `knowledge_asset` | spec-only | planned |
+| `memory_snapshot` | markdown files plus JSON sidecars | implemented |
+| `skill` | spec-only | planned |
+| `skill_installation` | spec-only | planned |
+| `device_adapter` | spec-only | future |
+| `sandbox_execution` | spec-only | planned |
+| `audit_event` | spec-only | planned |
+
+This mapping is important because it prevents the spec from pretending the prototype already has a full relational platform schema.
+The spec should name the full platform entities while clearly marking which ones are already durable today.
+
+### 8.9 Hosted-Forward Data Model Direction
+The future hosted system should preserve the same ownership boundaries while moving control-plane state into a relational primary store.
+
+The migration direction is:
+- keep `tenant_id`, `agent_id`, `user_id`, and `session_id` as stable scope keys
+- move control-plane entities such as `tenant`, `agent`, `policy`, `capability_grant`, `skill_installation`, and `audit_event` into PostgreSQL
+- keep the memory projection model, even if its backing persistence becomes more structured
+- preserve per-agent or logically equivalent session-history isolation, even if deployment packaging changes
+
+The platform should not collapse the memory model into a generic table-first design that makes the current inspectable documents disappear.
+The document projections remain a product behavior requirement, not only a local implementation shortcut.
 
 ## 9. Architecture Overview
 MYNAH should be divided into these major subsystems:
@@ -396,8 +602,8 @@ But the implementation must remain:
 
 This means we want the user experience of natural persistent memory without allowing unconstrained memory writes.
 
-## 12. Hermes-Aligned Memory Direction
-MYNAH should intentionally align with Hermes on the high-level memory pattern, especially:
+## 12. Memory Direction
+MYNAH should intentionally follow this high-level memory pattern:
 - persistent cross-session memory
 - an agent-driven sense of what is worth remembering
 - lightweight recall from prior context
@@ -408,7 +614,7 @@ What we want to preserve from that philosophy:
 - the system should decide when something is worth writing
 - memory should improve over time and make the agent feel persistent
 
-What MYNAH must change from Hermes:
+What MYNAH must change from looser agent-memory systems:
 - memory must be scoped per tenant and per agent
 - memory writes must go through validation and policy gates
 - memory cannot become a silent prompt-injection or cross-tenant leak vector
@@ -512,7 +718,7 @@ The main requirement is that accepted memory writes remain reconstructable and i
 - safe against accidental cross-tenant leakage
 
 ### 13.6 Why This Model
-This keeps the main benefits of Hermes:
+This keeps the main benefits of the pattern:
 - small always-on persistent memory
 - long-term searchable session archive
 - natural feeling recall
@@ -550,7 +756,7 @@ The runtime must:
 - validate the resulting `MEMORY.md`
 - validate the resulting `USER.md`
 - reject low-value, unsafe, or invalid revisions
-- persist accepted revisions atomically
+- persist accepted revisions through one explicit ordered commit path
 
 The runtime must not:
 - mutate `AGENT_PROFILE.md` from ordinary user turns
@@ -586,6 +792,12 @@ The runtime should also attach or derive the following provenance at persistence
 - source turn timestamp
 
 This keeps the model-facing output small while preserving inspectability in the runtime.
+
+The practical implementation interpretation is:
+- this is a tool-like contract shape
+- the model emits structured memory operations as if it were filling a narrow tool payload
+- the runtime does not expose direct durable write authority through that shape
+- persistence still happens only after runtime validation and application
 
 In v0, the runtime should also keep the latest rejected revision attempt in an inspectable sidecar for debugging and eval analysis. That rejected record should include:
 - `user_id`
@@ -635,7 +847,131 @@ The purpose of the contract is:
 - the model may suggest memory
 - the runtime decides what becomes durable truth
 
-In practice this means MYNAH should borrow Hermes's frozen-snapshot memory feel, but not Hermes's looser tool-driven memory authority.
+In practice this means MYNAH should keep the frozen-snapshot memory feel while keeping memory authority in the runtime rather than in model-issued tool calls.
+
+### 14.0.5 Pattern Preserved, Authority Tightened
+The memory pipeline should intentionally preserve the useful product pattern:
+- the agent feels persistent across sessions
+- the model helps decide what is worth remembering
+- memory updates happen after the user-facing response
+- session history remains available for later recall
+
+But MYNAH must keep a stricter authority boundary than tool-driven memory systems:
+- the model does not call a durable memory tool directly
+- the model only emits a bounded revision proposal
+- the runtime applies, validates, scopes, and persists changes
+- unsupported or unsafe operations are rejected instead of partially trusted
+
+This keeps the product behavior inspiration while moving the real trust boundary into code.
+
+### 14.0.6 Turn-Level Memory Pipeline Contract
+For one completed turn, the runtime should execute the memory pipeline in this order:
+
+1. Build the response prompt from the frozen snapshot:
+   - `AGENT_PROFILE.md`
+   - current `MEMORY.md`
+   - current session user's `USER.md`
+   - recall excerpts from session history
+2. Generate the user-facing reply
+3. Persist the user and assistant messages into session history
+4. Ask the model for a bounded memory revision proposal
+5. Validate and apply the proposed operations against the pre-turn memory documents
+6. Persist accepted document updates and latest provenance sidecars
+7. Persist the latest rejected revision sidecar when validation fails
+
+The revision proposal must never mutate the already-built prompt for the current turn.
+All accepted changes are durable only for later turns.
+
+### 14.0.7 Revision Inputs and Evidence Rules
+The memory revision step should receive:
+- current `MEMORY.md`
+- current `USER.md` for the resolved session user
+- latest user message
+- latest assistant reply
+- current configured size limits
+
+Evidence rules:
+- the latest user message is the primary evidence source for new durable memory
+- the latest assistant reply may help identify corrections, removals, or clarified outcomes, but it is not sufficient evidence by itself
+- current stored memory may be used to decide whether to add, replace, or remove
+- session history beyond the current turn should not be silently rewritten during this step unless it is already reflected in current memory or the latest turn
+
+The revision model should prefer no-op output when the turn does not add durable value.
+
+### 14.0.8 Runtime Validation Order
+The runtime validation order should be explicit:
+
+1. Parse the revision payload
+2. Validate operation shape:
+   - valid `target`
+   - valid `action`
+   - required `content`
+   - required `old_text`
+3. Validate operation content safety:
+   - prompt-injection patterns
+   - secret exfiltration patterns
+   - invisible or unsafe unicode
+4. Validate operation scope:
+   - shared facts stay in `MEMORY.md`
+   - current-user facts stay in `USER.md`
+   - facts about a different user are rejected
+5. Apply operations to the current documents
+6. Validate the resulting `MEMORY.md`
+7. Validate the resulting `USER.md`
+8. Persist accepted results or record the rejection
+
+If any step fails, the runtime should reject the revision and keep the prior durable memory unchanged.
+
+### 14.0.9 No-Op and Partial-Target Semantics
+The v0 runtime should treat the revision result as one bounded proposal that may touch:
+- only `MEMORY.md`
+- only `USER.md`
+- both documents
+- neither document
+
+Semantics:
+- zero operations is a valid no-op result
+- if only shared memory changes, user-memory provenance must remain unchanged
+- if only user memory changes, shared-memory provenance must remain unchanged
+- if both documents are unchanged after deduplication or matching, no new provenance should be written
+- duplicate adds should collapse into one durable entry
+- `replace` and `remove` should fail when `old_text` is missing or ambiguous against non-identical entries
+
+### 14.0.10 Persistence Semantics in v0
+The v0 persistence contract should distinguish current prototype behavior from the stronger hosted target.
+
+Current prototype behavior:
+- session history is persisted in SQLite before memory revision persistence
+- accepted document writes are runtime-ordered, file-backed writes
+- latest provenance is stored as one latest sidecar per target document
+- latest rejection is stored as one latest inspectable sidecar
+- the runtime preserves the previous durable documents when revision validation fails
+
+Current prototype limitation:
+- when both `MEMORY.md` and `USER.md` change in the same turn, persistence is not yet a true cross-document transaction
+- v0 therefore guarantees ordered commit behavior, not an all-or-nothing transactional bundle across both target documents and sidecars
+
+Required next hardening step:
+- move accepted shared-memory write, user-memory write, and their latest provenance into one explicit transactional commit boundary
+- keep the same external revision contract while strengthening the persistence guarantee underneath
+
+### 14.0.11 Inspection Surface Contract
+The minimum v0 inspection surface for memory decisions is:
+- current `AGENT_PROFILE.md`
+- current `MEMORY.md`
+- current session user's `USER.md`
+- latest shared-memory provenance sidecar
+- latest user-memory provenance sidecar
+- latest rejected revision sidecar
+- recent session history excerpts
+
+This inspection surface must make it possible to answer:
+- what the agent currently remembers
+- which latest user turn caused the last accepted shared-memory change
+- which latest user turn caused the last accepted user-memory change
+- what the latest rejected revision tried to do and why it failed
+
+The CLI `show` flow is the current prototype implementation of this contract.
 
 ### 14.1 Memory Pipeline Stages
 1. Candidate extraction
@@ -660,13 +996,13 @@ The routing rule is:
 4. Persistence
    - update bounded memory files
    - persist session history records
-   - persist memory/profile writes atomically so readers see either the old complete state or the new complete state
+   - persist accepted memory writes through the explicit v0 ordered commit path, with stronger cross-document transactional persistence as the next hardening step
 
 5. Retrieval index update
    - update search structures for session history as needed
 
 ### 14.2 Why This Structure
-This preserves the Hermes-style feeling that the agent "decides what to remember" while keeping writes controlled and inspectable.
+This preserves the feeling that the agent "decides what to remember" while keeping writes controlled and inspectable.
 
 ### 14.3 Immediate v0 Implementation Implications
 The current prototype should grow in this order:
@@ -1013,18 +1349,17 @@ The framework should prove itself through at least two reference configurations:
 - screen and voice delivery later
 - stricter action and escalation rules
 
-## 27. Hermes Borrowing Strategy
-MYNAH should not use Hermes as the product core.
-MYNAH should borrow selected ideas from Hermes where they are strong.
+## 27. Memory and Autonomy Boundary
+MYNAH should keep the useful parts of modern memory-first agent behavior without inheriting the wrong trust model.
 
-### 27.1 Borrow
+### 27.1 Keep
 - automatic memory-worthiness decisions
 - persistent memory across sessions
 - bounded post-interaction memory updates
 - lightweight contextual recall
 - good developer ergonomics around memory usage
 
-### 27.2 Do Not Borrow As-Is
+### 27.2 Reject
 - agent-managed skill creation and mutation
 - single-user storage assumptions
 - broad tool-by-default agent surface
@@ -1032,16 +1367,7 @@ MYNAH should borrow selected ideas from Hermes where they are strong.
 - local machine trust assumptions as the primary platform boundary
 
 ### 27.3 MYNAH Interpretation
-Use Hermes as:
-- product inspiration
-- design reference
-- memory behavior benchmark
-
-Do not use Hermes as:
-- the long-term framework core
-- the security boundary
-- the tenancy model
-- the skill governance model
+The platform should keep the user-visible behavior of durable memory and lightweight recall, while keeping real authority in runtime validation, policy, and scope enforcement.
 
 ## 28. Initial Technology Direction
 These are the current technology decisions and directions:
@@ -1094,7 +1420,6 @@ Excluded:
 
 ## 30. Immediate Next Design Pass
 The next spec pass should answer:
-- exact database/file layout for tenant, agent, `MEMORY.md`, `AGENT_PROFILE.md`, session history, and policy
 - exact persisted provenance format and inspection surface for memory updates
 - exact skill manifest format
 - runtime request/response contract for skill execution
@@ -1106,7 +1431,6 @@ The next spec pass should answer:
 The current spec is now strong on product shape and system boundaries, but it still lacks implementation-level precision in several places.
 
 The most important missing pieces are:
-- canonical database schema
 - exact persisted provenance and inspection contracts for memory writes
 - skill manifest and lifecycle details
 - control-plane and gateway API contracts
@@ -1115,15 +1439,20 @@ The most important missing pieces are:
 - security/audit retention and incident-response details
 
 ### 31.1 Schema Gaps
-We still need exact schemas for:
+The v0 local data model is now defined, but we still need hosted-control-plane schemas for:
 - `tenant`
 - `agent`
 - `policy`
-- session history tables
-- memory snapshot storage and projection metadata
+- `capability_grant`
+- `knowledge_asset`
 - `skill`
 - `skill_installation`
 - `audit_event`
+
+We also still need:
+- relational projection rules between control-plane records and the rendered memory documents
+- channel metadata shape beyond the current implicit CLI entrypoint
+- retention and lifecycle rules for old session history and provenance records
 
 ### 31.2 Runtime Contract Gaps
 We still need to define:
@@ -1152,19 +1481,16 @@ We still need to define:
 ## 32. Recommended Next Steps
 The recommended next sequence is:
 
-1. Write the v0 data model spec
-   - lock tables, IDs, foreign keys, and core indexes
-
-2. Write the memory pipeline contract
+1. Write the memory pipeline contract
    - define memory update output, session persistence, recall, and bounded file rendering rules
 
-3. Write the skill manifest and gateway contract
+2. Write the skill manifest and gateway contract
    - define exactly how a sealed skill is described and invoked
 
-4. Write the runtime topology spec
+3. Write the runtime topology spec
    - define which services run in the control plane, which workloads run in sandboxes, and how they communicate
 
-5. Write the first product reference design
+4. Write the first product reference design
    - horse twin first
    - because it exercises memory well without requiring too many high-risk skills
 

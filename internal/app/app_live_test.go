@@ -181,7 +181,7 @@ func TestLiveOpenAIMemoryOperationContractTargetsAndUpdates(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	revision, err := client.ReviseMemory(ctx, llm.MemoryRevisionRequest{
+	proposal, err := client.ProposeMemoryOps(ctx, llm.MemoryOpProposalRequest{
 		AgentID:       "bella",
 		MemoryDoc:     "- The barn uses the blue gate.\n- Reminder on Friday.",
 		UserDoc:       "- Name: Anna.\n- Prefers concise answers.",
@@ -191,16 +191,16 @@ func TestLiveOpenAIMemoryOperationContractTargetsAndUpdates(t *testing.T) {
 		UserLimit:     1375,
 	})
 	if err != nil {
-		t.Fatalf("revise memory: %v", err)
+		t.Fatalf("propose memory ops: %v", err)
 	}
-	if len(revision.Operations) == 0 {
+	if len(proposal.Operations) == 0 {
 		t.Fatal("expected memory operations")
 	}
 
 	var sawUserTarget bool
 	var sawMemoryTarget bool
 	var sawReplaceOrRemove bool
-	for _, operation := range revision.Operations {
+	for _, operation := range proposal.Operations {
 		if operation.Target == "user" {
 			sawUserTarget = true
 		}
@@ -212,10 +212,10 @@ func TestLiveOpenAIMemoryOperationContractTargetsAndUpdates(t *testing.T) {
 		}
 	}
 	if !sawUserTarget || !sawMemoryTarget {
-		t.Fatalf("expected mixed user and memory targets, got %+v", revision.Operations)
+		t.Fatalf("expected mixed user and memory targets, got %+v", proposal.Operations)
 	}
 	if !sawReplaceOrRemove {
-		t.Fatalf("expected at least one replace/remove operation, got %+v", revision.Operations)
+		t.Fatalf("expected at least one replace/remove operation, got %+v", proposal.Operations)
 	}
 }
 
